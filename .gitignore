@@ -1,0 +1,40 @@
+# Secrets and local configuration: only a redacted example is versioned.
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.p12
+*.pfx
+credentials.json
+credentials-*.json
+service-account*.json
+.npmrc
+.netrc
+
+# Private/generated data and dependencies
+node_modules/
+__pycache__/
+*.pyc
+*.log
+logs/
+backups/
+*.sqlite
+*.sqlite3
+*.db
+coverage/
+test-results/
+playwright-report/
+Haq.html
+security-results.json
+security-dependency-audit.json
+
+.tools/
+
+# Authentication database, journals and private account backups
+private/
+
+# Native PostgreSQL files, private runtime config and encrypted database snapshots
+.runtime/
+*.haqpg
+*.dump

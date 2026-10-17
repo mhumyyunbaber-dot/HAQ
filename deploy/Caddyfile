@@ -1,0 +1,21 @@
+# Install maintained Caddy on the production host. DNS must point DOMAIN here.
+# Export DOMAIN and ACME_EMAIL in Caddy's service environment, not frontend code.
+{
+    email {$ACME_EMAIL}
+    # Caddy automatic HTTPS obtains/renews a real certificate and redirects HTTP.
+    # Do not enable debug logging.
+}
+
+{$DOMAIN} {
+    header Strict-Transport-Security "max-age=31536000"
+    request_body {
+        max_size 8KB
+    }
+    reverse_proxy 127.0.0.1:3000 {
+        # Overwrite, do NOT trust/append browser-supplied proxy headers.
+        header_up X-Forwarded-For {remote_host}
+        header_up X-Forwarded-Proto https
+    }
+    # No access-log directive: app emits minimal structured security events.
+    # Use an operator-managed log collector for alerts; never log case details.
+}

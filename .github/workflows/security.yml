@@ -1,0 +1,86 @@
+name: Security and regression checks
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+  schedule:
+    - cron: '30 4 * * 1'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: security-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  security:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      NODE_ENV: production
+      PGHOST: 127.0.0.1
+      PGPORT: '5432'
+      PGUSER: postgres
+      PGPASSWORD: ci-only
+      PGDATABASE: postgres
+    services:
+      postgres:
+        image: postgres:17-bookworm
+        env:
+          POSTGRES_PASSWORD: ci-only
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s --health-timeout 5s --health-retries 10
+    steps:
+      - name: Checkout full local history without write credentials
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Supported production runtime
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: '24'
+          cache: npm
+      - name: Install locked dependencies without package lifecycle scripts
+        run: npm ci --ignore-scripts
+      - name: Install test browser
+        run: npx playwright install --with-deps chromium
+      - name: Ephemeral test identity password (shared across test commands)
+        run: node -e "require('fs').appendFileSync(process.env.GITHUB_ENV,'HAQ_TEST_IDENTITY_PASSWORD='+require('crypto').randomBytes(32).toString('base64url')+'\n')"
+      - name: Matching PostgreSQL 17 client tools for encrypted restore tests
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y postgresql-client-17
+          echo '/usr/lib/postgresql/17/bin' >> "$GITHUB_PATH"
+      - name: Security gates, account/browser regressions and restore drills
+        run: npm run security
+      # Make this job a required status check in repository branch protection.
+      # Do not use pull_request_target or expose deployment secrets to PR jobs.
+
+  compose:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout without write credentials
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+        with:
+          persist-credentials: false
+      - name: Supported runtime
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38
+        with:
+          node-version: '24'
+      - name: Generate ephemeral private Compose configuration
+        run: node scripts/init-config.cjs --output .env.compose-ci
+      - name: Validate, build and start the actual containers
+        run: |
+          docker compose --env-file .env.compose-ci config --quiet
+          docker compose --env-file .env.compose-ci up -d --build --wait --wait-timeout 180
+      - name: PostgreSQL-backed HTTP smoke test through gateway
+        run: node scripts/compose-smoke.cjs
+      - name: Remove ephemeral containers and test volumes
+        if: always()
+        run: docker compose --env-file .env.compose-ci down -v --remove-orphans

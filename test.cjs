@@ -1,0 +1,44 @@
+const path=require('node:path');
+const fsOut=require('node:fs');
+const screenshotDir=path.join(__dirname,'test-results');fsOut.mkdirSync(screenshotDir,{recursive:true});
+const {chromium}=require('playwright');
+const assert=require('node:assert/strict');
+(async()=>{
+ const browser=await chromium.launch({headless:true});
+ const page=await browser.newPage({viewport:{width:1440,height:1000},acceptDownloads:true});
+ const errors=[];page.on('pageerror',e=>errors.push(e.message));
+ const requests=[];page.on('request',r=>requests.push(r.url()));
+ await page.goto(process.env.HAQ_URL||'http://127.0.0.1:3000');
+ assert.equal(await page.locator('.trust-strip').count(),0,'Non-interactive hero badges must not appear');
+ const check=async(text)=>assert.ok((await page.locator('#resultArea').innerText()).includes(text),text);
+ async function query(region,text){await page.selectOption('#region',region);await page.fill('#situation',text);await page.locator('#askForm button[type=submit]').click()}
+ await page.locator('#askForm button[type=submit]').click();assert.match(await page.locator('#formError').innerText(),/Select where/);
+ await query('Punjab','My landlord is forcing me out of my rented home.');await check('Punjab Rented Premises Act');
+ await page.locator('[data-save]').click();assert.equal(await page.locator('#nav .count').innerText(),'1');
+ const dl=page.waitForEvent('download');await page.locator('[data-download]').click();const file=await dl;assert.match(file.suggestedFilename(),/^haq-rent-Punjab/);
+ const fs=require('fs');const content=fs.readFileSync(await file.path(),'utf8');assert.ok(content.includes('Punjab Rented Premises Act'));assert.ok(!content.includes('My landlord is forcing'));
+ await query('Sindh','My landlord is forcing me out of my rented home.');await check('Sind Rented Premises Ordinance');assert.ok(!(await page.locator('#resultArea').innerText()).includes('Punjab Rented Premises Act'));
+ await query('Balochistan','My landlord is forcing me out of my rented home.');await check('exact rent statute');assert.equal(await page.locator('#resultArea .law').count(),0);
+ await query('GB','My brother was arrested last night without an explanation.');await check('Separate legal review needed');assert.equal(await page.locator('#resultArea .law').count(),0);
+ await query('Punjab','My brother was arrested last night without an explanation.');await check('Article 10');
+ await query('Punjab','The police refused my FIR after a theft.');await check('Section 154');await check('1787');
+ await query('Sindh','The police refused my FIR after a theft.');assert.equal(await page.locator('#resultArea a[href*="punjabpolice"]').count(),0);assert.ok(!(await page.locator('#resultArea').innerText()).includes('published IGP complaint number is 1787'));
+ await query('Punjab','Someone is blackmailing me online.');await check('PECA');await check('1799');
+ await query('Punjab','My boss is making unwanted sexual comments.');await check('Workplace Act');
+ await query('Punjab','My boss has not paid my salary in months.');await check('cannot safely match');
+ await query('Punjab','What is the latest order under section 144 in my district?');await check('cannot safely match');
+ await query('Punjab','The police arrested my brother after a theft and refused my FIR.');await check('more than one issue');await page.locator('#resultArea [data-topic="arrest"]').click();await page.locator('#askForm button[type=submit]').click();await check('Article 10');
+ await query('Punjab','My CNIC number is 12345-1234567-1 and I was arrested.');assert.match(await page.locator('#formError').innerText(),/remove CNIC/);
+ await query('Punjab','میرے بھائی کو گرفتار کیا گیا ہے وجہ نہیں بتائی گئی');await check('Article 10');
+ await page.locator('[data-lang="ur"]').click();assert.ok(await page.locator('body').evaluate(el=>el.classList.contains('urdu')));await check('گرفتاری');
+ await page.locator('[data-lang="roman"]').click();await query('Punjab','Mere bhai ko giraftar kiya hai aur wajah nahi batayi.');await check('Article 10');
+ await page.locator('[data-lang="en"]').click();await page.locator('[data-page="saved"]').click();assert.equal(await page.locator('.result').count(),1);await page.locator('[data-remove]').click();assert.equal(await page.locator('.result').count(),0);
+ await page.locator('[data-page="library"]').click();assert.equal(await page.locator('.library-item').count(),6);
+ await page.locator('[data-page="how"]').click();assert.match(await page.locator('main').innerText(),/does not call an AI/);
+ await page.locator('[data-page="ask"]').click();await page.locator('[data-emergency]').click();assert.equal(await page.locator('#emergencyDialog').evaluate(d=>d.open),true);await page.keyboard.press('Escape');
+ for(const lang of ['en','ur','roman']){await page.locator(`[data-lang="${lang}"]`).click();await page.setViewportSize({width:390,height:844});assert.ok(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth+1),'No mobile horizontal overflow in '+lang)}
+ await page.locator('[data-lang="en"]').click();await page.fill('#situation','');await page.screenshot({path:path.join(screenshotDir,'mobile.png'),fullPage:true});
+ await page.setViewportSize({width:1440,height:1100});await page.reload();await page.screenshot({path:path.join(screenshotDir,'desktop.png'),fullPage:true});assert.equal(await page.locator('#situation').inputValue(),'');assert.equal(await page.locator('#nav .count').innerText(),'0');
+ assert.deepEqual(errors,[]);assert.equal(requests.filter(r=>!r.startsWith(new URL(process.env.HAQ_URL||'http://127.0.0.1:3000').origin)&&!r.startsWith('blob:')).length,0,'No external requests');
+ await browser.close();console.log('PASS: jurisdiction routing, six topic guides, multilingual UI/input, privacy validation, unknown/mixed issues, save/remove, export, mobile layout, emergency dialog, no external requests or browser errors.');
+})().catch(e=>{console.error(e);process.exit(1)});

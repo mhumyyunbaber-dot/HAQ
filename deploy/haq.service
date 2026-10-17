@@ -1,0 +1,23 @@
+[Unit]
+Description=Haq Docker Compose microservices
+Requires=docker.service
+After=docker.service network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+WorkingDirectory=/opt/haq
+# Root manages Docker only; application containers run non-root with dropped capabilities.
+# Access to the Docker daemon is root-equivalent; restrict this unit and configuration.
+User=root
+ExecStart=/usr/bin/docker compose --env-file /etc/haq/haq.env -f /opt/haq/compose.yaml up --detach --wait --wait-timeout 180
+ExecStop=/usr/bin/docker compose --env-file /etc/haq/haq.env -f /opt/haq/compose.yaml down
+TimeoutStartSec=240
+TimeoutStopSec=60
+UMask=0077
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

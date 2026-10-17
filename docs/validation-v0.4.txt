@@ -1,0 +1,133 @@
+Haq v0.4 validation · 16 October 2026
+
+Real PostgreSQL 17.11 and four separate native Node service processes.
+Docker Compose 2.26.1 config validation: PASS; Docker engine: unavailable.
+Actual independent-process HTTP smoke: PASS (signup/login/session/delete/catalog/headers); fixture user deleted, live users/identities both zero.
+Only the gateway application process binds 0.0.0.0:3000. Private service processes bind loopback; keys required.
+Compose/CI YAML and private-network/environment invariants: PASS. Remote CI/container execution and real OAuth/SMTP activation: NOT PERFORMED.
+
+Full security gate output:
+
+
+> haq-legal-navigator@0.4.0 security
+> npm run build && npm run scan:secrets && npm run audit:dependencies && npm test && npm run test:services && npm run test:browser:services && python -m unittest discover -s tests -p "*_test.py" && npm run backup:test
+
+
+> haq-legal-navigator@0.4.0 build
+> python build.py
+
+Built standalone HTML with pinned script/style hashes.
+
+> haq-legal-navigator@0.4.0 scan:secrets
+> python scripts/scan_secrets.py --history
+
+No local Git repository: tracked-file/history scan SKIPPED. Remote repository not inspected.
+Scanned 60 local text files; 0 findings. Pattern coverage is limited.
+
+> haq-legal-navigator@0.4.0 audit:dependencies
+> npm audit --audit-level=high
+
+found 0 vulnerabilities
+
+> haq-legal-navigator@0.4.0 test
+> node --test tests/auth.test.cjs tests/security-http.test.cjs tests/account-backup.test.cjs
+
+✔ account backup is authenticated encryption; correct-key restore works and tampering/wrong keys fail (10.337076ms)
+✔ public status has no cookie; guest bootstrap has HttpOnly Lax cookie and CSRF (51.685493ms)
+✔ registration stores Argon2id, rotates the guest session, and never returns password hashes (117.755416ms)
+✔ Gmail aliases normalize to one account; Google identity uniqueness is database-enforced (160.780124ms)
+✔ login, multiple devices, current-session logout and all-device revocation (234.970934ms)
+✔ profile authorization, strict schema, CSRF, and no object/role override (96.086475ms)
+✔ incorrect login uses generic errors and SQL-like email cannot query accounts (266.503537ms)
+✔ verification is explicit, single-use and does not sign anyone in automatically (74.860786ms)
+✔ password recovery never returns tokens, consumes once and revokes every user session (275.941709ms)
+✔ expired session and expired email tokens are rejected (74.027905ms)
+✔ unconfigured social login fails closed; account deletion requires password (201.132623ms)
+✔ Google validates OIDC + PKCE and the same subject always returns the same user across devices (157.31609ms)
+✔ OAuth state is browser-bound and single-use; mismatched OIDC nonce fails (30.292637ms)
+✔ matching email never auto-merges; verified existing account can explicitly link Google (151.042862ms)
+✔ Facebook validates app, expiry and subject and permits a missing email without inventing one (14.367239ms)
+✔ Google rejects wrong issuer, wrong audience, expired ID tokens and unverified email (115.659117ms)
+✔ Gmail aliases cannot bypass per-account brute-force limits (668.558308ms)
+✔ password change requires old password, rotates session and revokes other devices (354.956334ms)
+✔ missing SMTP disables recovery and no verification tokens leak through responses (80.507418ms)
+✔ only the exact public bundle is served; no directory listing (51.338728ms)
+✔ traversal, encoded paths, SQL-like/query input and absolute targets fail closed (10.431682ms)
+✔ unknown APIs, admin, legacy auth paths and uploads remain unavailable (14.605416ms)
+✔ body and upload payloads are refused before parsing; no reflection (5.808306ms)
+✔ CSP and other headers lock down execution, network, privacy and MIME (5.451774ms)
+✔ arbitrary hosts/origins rejected; same-origin accepted; CORS not enabled (8.159876ms)
+✔ per-client rate limits cannot be bypassed by untrusted forwarding headers (5.088235ms)
+✔ production rejects unsafe configuration and enforces HTTPS through a trusted terminator (9.329179ms)
+✔ security logs omit addresses, query strings, credentials, cookies and request bodies (5.667227ms)
+✔ oversized headers fail at the HTTP parser (3.135527ms)
+ℹ tests 29
+ℹ suites 0
+ℹ pass 29
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 3920.565315
+
+> haq-legal-navigator@0.4.0 test:services
+> node scripts/test-services.cjs
+
+✔ public status has no cookie; guest bootstrap has HttpOnly Lax cookie and CSRF (174.405165ms)
+✔ registration stores Argon2id, rotates the guest session, and never returns password hashes (178.698794ms)
+✔ Gmail aliases normalize to one account; Google identity uniqueness is database-enforced (261.561676ms)
+✔ login, multiple devices, current-session logout and all-device revocation (332.703378ms)
+✔ profile authorization, strict schema, CSRF, and no object/role override (200.628546ms)
+✔ incorrect login uses generic errors and SQL-like email cannot query accounts (369.418996ms)
+✔ verification is explicit, single-use and does not sign anyone in automatically (165.892275ms)
+✔ password recovery never returns tokens, consumes once and revokes every user session (388.185259ms)
+✔ expired session and expired email tokens are rejected (166.100692ms)
+✔ unconfigured social login fails closed; account deletion requires password (306.602866ms)
+✔ Google validates OIDC + PKCE and the same subject always returns the same user across devices (349.238348ms)
+✔ OAuth state is browser-bound and single-use; mismatched OIDC nonce fails (262.544521ms)
+✔ matching email never auto-merges; verified existing account can explicitly link Google (262.740824ms)
+✔ Facebook validates app, expiry and subject and permits a missing email without inventing one (112.966384ms)
+✔ Google rejects wrong issuer, wrong audience, expired ID tokens and unverified email (289.093502ms)
+✔ Gmail aliases cannot bypass per-account brute-force limits (740.892197ms)
+✔ password change requires old password, rotates session and revokes other devices (535.152651ms)
+✔ missing SMTP disables recovery and no verification tokens leak through responses (181.105082ms)
+✔ microservices: public routing, distinct private keys, and no accidental source exposure (216.404032ms)
+✔ PostgreSQL: DML-only runtime, migration history protected, transaction rollback and client isolation (239.423036ms)
+✔ gateway: origin/CSRF, strict JSON/body limits, read-only legal API, security headers (147.017045ms)
+✔ gateway: forged forwarding/service headers cannot bypass IP limits or select an upstream (83.494543ms)
+✔ gateway: cookies stay with identity; forwarded headers are edge-owned; preview cookie remains Secure (91.672927ms)
+✔ PostgreSQL concurrency: duplicate registrations create exactly one account (166.618363ms)
+✔ PostgreSQL concurrency: verification/reset tokens consumed once and reset revokes devices (457.96662ms)
+✔ migration: preserve users, Argon2 hashes, profiles and provider subjects; revoke all legacy tokens; never overwrite (218.233339ms)
+✔ PostgreSQL backup: authenticated encryption, wrong-key/tamper rejection, isolated restore and non-destructive recovery (631.804322ms)
+✔ failure isolation: stopped reference or identity service yields safe 503, other services stay available (101.761871ms)
+✔ production: authenticated loopback readiness works without weakening public Host/HTTPS checks (83.023873ms)
+ℹ tests 29
+ℹ suites 0
+ℹ pass 29
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 8136.578625
+
+> haq-legal-navigator@0.4.0 test:browser:services
+> node scripts/test-services.cjs --browser
+
+PASS: jurisdiction routing, six topic guides, multilingual UI/input, privacy validation, unknown/mixed issues, save/remove, export, mobile layout, emergency dialog, no external requests or browser errors.
+PASS: real browser signup, optional profile, persistent cookie login, escaped profile rendering, logout/login, mobile layout and unconfigured social-provider notice.
+PASS: browser DOM-XSS simulations, strict CSP compatibility/enforcement, no outbound fetch and standalone hash-CSP.
+.....
+----------------------------------------------------------------------
+Ran 5 tests in 0.198s
+
+OK
+
+> haq-legal-navigator@0.4.0 backup:test
+> python scripts/backup.py --restore-test
+
+No local Git repository: tracked-file/history scan SKIPPED. Remote repository not inspected.
+Scanned 60 local text files; 0 findings. Pattern coverage is limited.
+Source backup created (secrets excluded). Store an off-host copy with encryption and access controls.
+PASS: restored 57 source/template files to an isolated temporary directory; all SHA-256 checksums match.
+This is a source restore drill; account database snapshots use the separate encrypted backup tool.

@@ -1,0 +1,152 @@
+name: haq
+x-node: &node
+  restart: unless-stopped
+  read_only: true
+  tmpfs: ["/tmp:rw,noexec,nosuid,size=32m"]
+  cap_drop: [ALL]
+  security_opt: [no-new-privileges:true]
+  pids_limit: 128
+  mem_limit: 384m
+  init: true
+  healthcheck:
+    test: [CMD, node, scripts/healthcheck.cjs]
+    interval: 20s
+    timeout: 6s
+    retries: 3
+    start_period: 15s
+  logging:
+    driver: json-file
+    options: {max-size: 10m, max-file: '3'}
+x-app: &app
+  NODE_ENV: production
+  APP_ENV: ${APP_ENV:-preview}
+  ALLOWED_ORIGINS: ${ALLOWED_ORIGINS:-}
+  SECURITY_LOG_KEY: ${SECURITY_LOG_KEY:-}
+services:
+  gateway:
+    <<: *node
+    build: {context: ., target: gateway}
+    ports: ["${GATEWAY_BIND:-127.0.0.1}:${PORT:-3000}:3000"]
+    environment:
+      <<: *app
+      PORT: '3000'
+      HOST: 0.0.0.0
+      TRUSTED_PROXIES: ${TRUSTED_PROXIES:-}
+      RATE_WINDOW_MS: ${RATE_WINDOW_MS:-60000}
+      RATE_LIMIT_MAX: ${RATE_LIMIT_MAX:-240}
+      WEB_URL: http://web:3101
+      IDENTITY_URL: http://identity:3102
+      LEGAL_URL: http://legal:3103
+      WEB_SERVICE_KEY: ${WEB_SERVICE_KEY:?Run npm run config:init}
+      IDENTITY_SERVICE_KEY: ${IDENTITY_SERVICE_KEY:?Run npm run config:init}
+      LEGAL_SERVICE_KEY: ${LEGAL_SERVICE_KEY:?Run npm run config:init}
+    networks: [edge, web_rpc, identity_rpc, legal_rpc]
+    depends_on:
+      web: {condition: service_healthy}
+      identity: {condition: service_healthy}
+      legal: {condition: service_healthy}
+  web:
+    <<: *node
+    build: {context: ., target: web}
+    environment:
+      PORT: '3101'
+      SERVICE_KEY: ${WEB_SERVICE_KEY:?Run npm run config:init}
+    networks: [web_rpc]
+  legal:
+    <<: *node
+    build: {context: ., target: legal}
+    environment:
+      PORT: '3103'
+      SERVICE_KEY: ${LEGAL_SERVICE_KEY:?Run npm run config:init}
+    networks: [legal_rpc]
+  identity:
+    <<: *node
+    build: {context: ., target: identity}
+    mem_limit: 512m
+    environment:
+      <<: *app
+      PORT: '3102'
+      SERVICE_KEY: ${IDENTITY_SERVICE_KEY:?Run npm run config:init}
+      AUTH_DATABASE_URL: ${AUTH_DATABASE_URL:?Run npm run config:init}
+      AUTH_BASE_URL: ${AUTH_BASE_URL:-}
+      GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:-}
+      GOOGLE_CLIENT_SECRET: ${GOOGLE_CLIENT_SECRET:-}
+      FACEBOOK_APP_ID: ${FACEBOOK_APP_ID:-}
+      FACEBOOK_APP_SECRET: ${FACEBOOK_APP_SECRET:-}
+      FACEBOOK_GRAPH_VERSION: ${FACEBOOK_GRAPH_VERSION:-}
+      SMTP_HOST: ${SMTP_HOST:-}
+      SMTP_PORT: ${SMTP_PORT:-587}
+      SMTP_USER: ${SMTP_USER:-}
+      SMTP_PASS: ${SMTP_PASS:-}
+      MAIL_FROM: ${MAIL_FROM:-}
+    networks: [identity_rpc, database, egress]
+    depends_on:
+      postgres: {condition: service_healthy}
+      migrate: {condition: service_completed_successfully}
+  postgres:
+    image: postgres:17-bookworm
+    user: postgres
+    restart: unless-stopped
+    read_only: true
+    tmpfs: ["/tmp:rw,noexec,nosuid,size=32m", "/var/run/postgresql:rw,nosuid,size=8m,mode=0777"]
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    pids_limit: 128
+    mem_limit: 512m
+    shm_size: 128m
+    environment:
+      POSTGRES_DB: haq
+      POSTGRES_USER: haq_admin
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Run npm run config:init}
+      POSTGRES_INITDB_ARGS: --auth-host=scram-sha-256 --auth-local=scram-sha-256
+    command: [postgres, -c, max_connections=60, -c, shared_buffers=128MB, -c, log_statement=none, -c, log_min_error_statement=panic]
+    volumes: [postgres_data:/var/lib/postgresql/data]
+    networks: [database]
+    healthcheck:
+      test: [CMD-SHELL, 'pg_isready -U haq_admin -d haq']
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    logging:
+      driver: json-file
+      options: {max-size: 10m, max-file: '3'}
+  migrate:
+    build: {context: ., target: ops}
+    restart: 'no'
+    read_only: true
+    tmpfs: ["/tmp:rw,noexec,nosuid,size=32m"]
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    pids_limit: 64
+    mem_limit: 256m
+    environment:
+      DATABASE_ADMIN_URL: ${DATABASE_ADMIN_URL:?Run npm run config:init}
+      IDENTITY_DB_PASSWORD: ${IDENTITY_DB_PASSWORD:?Run npm run config:init}
+    networks: [database]
+    depends_on:
+      postgres: {condition: service_healthy}
+  ops:
+    profiles: [tools]
+    build: {context: ., target: ops}
+    restart: 'no'
+    read_only: true
+    tmpfs: ["/tmp:rw,noexec,nosuid,size=128m"]
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    pids_limit: 64
+    mem_limit: 256m
+    environment:
+      DATABASE_ADMIN_URL: ${DATABASE_ADMIN_URL:?Run npm run config:init}
+      IDENTITY_DB_PASSWORD: ${IDENTITY_DB_PASSWORD:?Run npm run config:init}
+      AUTH_BACKUP_KEY: ${AUTH_BACKUP_KEY:-}
+    volumes: ["${LEGACY_DB_DIR:-./private}:/legacy:ro", "${BACKUP_DIR:-./backups}:/backups"]
+    networks: [database]
+networks:
+  edge: {}
+  egress: {}
+  web_rpc: {internal: true}
+  identity_rpc: {internal: true}
+  legal_rpc: {internal: true}
+  database: {internal: true}
+volumes:
+  postgres_data: {}
